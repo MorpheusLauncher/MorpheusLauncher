@@ -21,10 +21,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.*;
 import java.nio.file.Files;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Enumeration;
-import java.util.List;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -203,6 +202,8 @@ public class Launcher {
             if (variables.isModded()) {
                 paths.addAll(setupLibraries(game));  /* Append modloader libraries if the game is modded */
                 paths.addAll(setupLibraries(vanilla)); /* Append vanilla libraries */
+
+                paths = dedupeLibraries(paths);
 
                 /* Due to unknown modloader reasons, we need to load even the inherited (vanilla) version */
                 jarFile = new File(String.format("%s/%s.jar", (new File(String.format("%s/versions/%s", gameFolder.getPath(), vanilla.id))).getPath(), vanilla.id));
@@ -917,5 +918,79 @@ public class Launcher {
             gameType = "quilt";
         }
         return String.format("%s %s", gameType, gameVersion);
+    }
+
+    private List<URL> dedupeLibraries(List<URL> paths) {
+        Map<String, LibEntry> best = new HashMap<>();
+        // pattern: …/libraries/group/path/artifact/version/artifact-version.jar
+        Pattern p = Pattern.compile(".*/libraries/(.+)/(.+)/(\\d+(?:[\\.\\-\\w]*)?)/\\2-\\3\\.jar$");
+
+        for (URL url : paths) {
+            String path = url.getPath().replace('\\', '/');
+            Matcher m = p.matcher(path);
+            if (m.matches()) {
+                String groupPath = m.group(1); // es. "org/ow2/asm/asm"
+                String artifact = m.group(2); // es. "asm"
+                String version = m.group(3); // es. "9.8"
+                String groupId = groupPath.replace('/', '.'); // "org.ow2.asm.asm"
+                String key = groupId + ":" + artifact;
+
+                LibEntry current = best.get(key);
+                if (current == null || compareVersions(version, current.version) > 0) {
+                    best.put(key, new LibEntry(version, url));
+                }
+            } else {
+                // JAR “non standard” sul path: usiamo l’URL completo come chiave
+                String key = url.toString();
+                if (!best.containsKey(key)) {
+                    best.put(key, new LibEntry("", url));
+                }
+            }
+        }
+
+        // raccogliamo gli URL vincenti
+        List<URL> result = new ArrayList<URL>();
+        for (LibEntry e : best.values()) {
+            result.add(e.url);
+        }
+        return result;
+    }
+
+    private int compareVersions(String v1, String v2) {
+        String[] a1 = v1.split("[\\.\\-]");
+        String[] a2 = v2.split("[\\.\\-]");
+        int n = Math.max(a1.length, a2.length);
+        for (int i = 0; i < n; i++) {
+            int x = i < a1.length ? parseIntOrZero(a1[i]) : 0;
+            int y = i < a2.length ? parseIntOrZero(a2[i]) : 0;
+            if (x != y) return x - y;
+        }
+        return 0;
+    }
+
+    private int parseIntOrZero(String s) {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static class LibEntry {
+        private final String version;
+        private final URL url;
+
+        public LibEntry(String version, URL url) {
+            this.version = version;
+            this.url = url;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        public URL getUrl() {
+            return url;
+        }
     }
 }
