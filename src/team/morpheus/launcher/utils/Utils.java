@@ -2,6 +2,7 @@ package team.morpheus.launcher.utils;
 
 import team.morpheus.launcher.Main;
 import team.morpheus.launcher.logging.MyLogger;
+import team.morpheus.launcher.utils.modutils.ForgeUtils;
 
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -16,38 +17,20 @@ import java.util.zip.ZipInputStream;
 
 public class Utils {
 
+    private static final MyLogger log = new MyLogger(Utils.class);
+
+    public static File makeDirectory(String path) {
+        File temp = new File(path);
+        if (!temp.exists() && temp.mkdirs()) {
+            log.info(String.format("Directory created: %s", temp.getPath()));
+        }
+        return temp;
+    }
+
     public static <T> T[] concat(T[] first, T[] second) {
         T[] result = Arrays.copyOf(first, first.length + second.length);
         System.arraycopy(second, 0, result, first.length, second.length);
         return result;
-    }
-
-    public static String readJsonFromConnection(HttpURLConnection conn) throws IOException {
-        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getResponseCode() < 400 ? conn.getInputStream() : conn.getErrorStream()));
-        String line, output = "";
-        while ((line = br.readLine()) != null) {
-            output += (line + "\n");
-        }
-        br.close();
-        return output;
-    }
-
-    public static HttpURLConnection makePostRequest(URL url, HashMap<String, String> params) throws IOException {
-        String urlParameters = getDataString(params);
-        byte[] postData = urlParameters.getBytes(StandardCharsets.UTF_8);
-        int postDataLength = postData.length;
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setDoOutput(true);
-        conn.setInstanceFollowRedirects(false);
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-        conn.setRequestProperty("charset", "utf-8");
-        conn.setRequestProperty("Content-Length", Integer.toString(postDataLength));
-        conn.setUseCaches(false);
-        try (DataOutputStream wr = new DataOutputStream(conn.getOutputStream())) {
-            wr.write(postData);
-        }
-        return conn;
     }
 
     public static String makeGetRequest(URL url) throws IOException {
@@ -66,19 +49,6 @@ public class Utils {
 
         bufferedreader.close();
         return stringbuilder.toString();
-    }
-
-    private static String getDataString(HashMap<String, String> params) throws UnsupportedEncodingException {
-        StringBuilder result = new StringBuilder();
-        boolean first = true;
-        for (Map.Entry<String, String> entry : params.entrySet()) {
-            if (first) first = false;
-            else result.append("&");
-            result.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8.displayName()));
-            result.append("=");
-            result.append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8.displayName()));
-        }
-        return result.toString();
     }
 
     public static void downloadAndUnzipNatives(URL source, File targetPath, MyLogger log) {

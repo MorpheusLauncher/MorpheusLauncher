@@ -12,7 +12,7 @@ import team.morpheus.launcher.utils.OSUtils;
 
 public class Main {
 
-    public static final String build = "(v2.3.0 | 07_05_2025)";
+    public static final String build = "(v2.4.0 | 22_10_2025)";
     private static final MyLogger log = new MyLogger(Main.class);
 
     @Getter
@@ -20,7 +20,7 @@ public class Main {
     @Getter
     private static MojangSession mojangSession;
 
-    // NOTE: it's important to set -Djava.library.path by giving natives path, else game won't start!
+    // NOTE: it's important to set -Djava.library.path by giving natives path, else the game won't start!
     public static void main(String[] args) throws Exception {
         log.info(String.format("Morpheus Launcher %s | Lampadina_17 (by-nc-sa)", build));
 
@@ -55,52 +55,46 @@ public class Main {
     private static void printHelp(Options options) {
         System.out.println("Usage: java -Djava.library.path=<nativespath> -jar Launcher.jar [options]");
         System.out.println("\nAvailable options:");
-        for (Option option : options.getOptions()) { /* Shitty workaround due to shitty bug */
+        for (Option option : options.getOptions()) { /* Shitty workaround due to a shitty bug */
             System.out.println(String.format("-%s, -%-45s %s", option.getOpt(), (option.getLongOpt() + (option.hasArg() ? " <" + option.getArgName() + ">" : "")), option.getDescription()));
         }
         System.out.println("\nCheck wiki for more details: https://morpheus-launcher.gitbook.io/home/\n");
     }
 
-    private static void copyToClipboard(String text) {
-        java.awt.datatransfer.Clipboard clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
-        java.awt.datatransfer.StringSelection selection = new java.awt.datatransfer.StringSelection(text);
-        clipboard.setContents(selection, null);
-    }
-
-    /* ----- VANILLA ----- */
-    public static final String getVersionsURL() { /* vanilla versions list */
+    /* ----- Vanilla ----- */
+    public static String getVersionsURL() { /* vanilla versions list */
         return "https://launchermeta.mojang.com/mc/game/version_manifest.json";
     }
 
-    public static final String getAssetsURL() { /* vanilla game assets */
+    public static String getAssetsURL() { /* vanilla game assets */
         return "https://resources.download.minecraft.net";
     }
 
-    public static final String getLibrariesURL() { /* vanilla game libraries */
+    public static String getLibrariesURL() { /* vanilla game libraries */
         return "https://libraries.minecraft.net";
     }
 
     /* ----- Fabric ----- */
-    public static final String getFabricVersionsURL() { /* fabric versions list */
+    public static String getFabricVersionsURL() { /* fabric versions list */
         return "https://meta.fabricmc.net/v2/versions";
     }
 
     /* ----- Forge ----- */
-    public static final String getForgeVersionsURL() { /* forge versions list */
+    public static String getForgeVersionsURL() { /* forge versions list */
         return "https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json";
     }
 
-    public static final String getForgeInstallerURL() { /* forge installer base url */
+    public static String getForgeInstallerURL() { /* forge installer base url */
         return "https://maven.minecraftforge.net/net/minecraftforge/forge/";
     }
 
-    /* ----- Optifine ----- */
-    public static final String getOptifineVersionsURL() {
+    /* ----- OptiFine ----- */
+    public static String getOptifineVersionsURL() {
         return String.format("%s/downloads/optifine.json", getMorpheusAPI());
     }
 
     /* ----- Morpheus ----- */
-    public static final String getMorpheusAPI() {
+    public static String getMorpheusAPI() {
         return "https://morpheuslauncher.it";
     }
 }

@@ -4,8 +4,6 @@ import java.io.File;
 
 public class OSUtils {
 
-    public static native String getHWID();
-
     public static String getOSArch() {
         return System.getProperty("os.arch");
     }
@@ -13,12 +11,11 @@ public class OSUtils {
     public static File getWorkingDirectory(String applicationName) {
         String userHome = System.getProperty("user.home", ".");
         File workingDirectory;
-        switch (getPlatform().ordinal()) {
-            case 0:
-            case 1:
+        switch (getPlatform()) {
+            case linux:
                 workingDirectory = new File(userHome, '.' + applicationName + '/');
                 break;
-            case 2:
+            case windows:
                 String applicationData = System.getenv("APPDATA");
                 if (applicationData != null) {
                     workingDirectory = new File(applicationData, "." + applicationName + '/');
@@ -26,7 +23,7 @@ public class OSUtils {
                     workingDirectory = new File(userHome, '.' + applicationName + '/');
                 }
                 break;
-            case 3:
+            case macos:
                 workingDirectory = new File(userHome, "Library/Application Support/" + applicationName);
                 break;
             default:
@@ -46,10 +43,6 @@ public class OSUtils {
             return OS.windows;
         } else if (osName.contains("mac")) {
             return OS.macos;
-        } else if (osName.contains("solaris")) {
-            return OS.solaris;
-        } else if (osName.contains("sunos")) {
-            return OS.solaris;
         } else if (osName.contains("linux")) {
             return OS.linux;
         } else {
@@ -58,6 +51,6 @@ public class OSUtils {
     }
 
     public enum OS {
-        linux, solaris, windows, macos, unknown
+        linux, windows, macos, unknown
     }
 }

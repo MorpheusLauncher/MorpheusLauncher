@@ -1,4 +1,4 @@
-package team.morpheus.launcher.utils;
+package team.morpheus.launcher.utils.thread;
 
 import team.morpheus.launcher.logging.MyLogger;
 
