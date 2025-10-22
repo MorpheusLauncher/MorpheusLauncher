@@ -17,15 +17,15 @@ Universal commandline minecraft launcher based on dynamic classloading
 *currently forge compatibility is limited to a few versions, take a look [here](https://morpheuslauncher.it/) for more informations
 
 # 📘 Installation
-[**Automatic installation (for basic users) [recommended]**](https://morpheus-launcher.gitbook.io/home/installation/automatic-install)
+[**Automatic installation (for basic users) [recommended]**](https://morpheus-launcher.gitbook.io/home/for-intel-and-arm/automatic-install)
 
-[**Manual installation (for advanced users)**](https://morpheus-launcher.gitbook.io/home/installation/manual-installation)
+[**Manual installation (for advanced users)**](https://morpheus-launcher.gitbook.io/home/for-intel-and-arm/manual-install)
 
 # ⬇️ Prebuilt binaries
 [**Download Launcher (cli)**](https://morpheuslauncher.it/downloads/Launcher.jar)
 
 # ⚙️ Compiling from sourcecode
-[**Instructions for developers**](https://morpheus-launcher.gitbook.io/home/compiling-from-source)
+[**Instructions for developers**](https://morpheus-launcher.gitbook.io/home/for-developers/compiling-from-source)
 
 # 📣 Need more help?
 - Official launcher wiki: https://morpheus-launcher.gitbook.io/home/
