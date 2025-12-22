@@ -27,6 +27,6 @@ public class Vanilla {
                 || mcVersion.toLowerCase().contains("liteloader");
 
         log.info(String.format("Launching %s instance (%s)", !modded ? "Vanilla" : "Modded", mcVersion));
-        new Launcher(new LauncherVariables(mcVersion, modded, useclasspath, gamePath, startonfirstthread));
+        new Launcher(new LauncherVariables(mcVersion, modded, useclasspath, gamePath, startonfirstthread)).launchGame();
     }
 }

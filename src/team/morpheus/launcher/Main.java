@@ -5,6 +5,7 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
+import team.morpheus.launcher.instance.Morpheus;
 import team.morpheus.launcher.instance.Vanilla;
 import team.morpheus.launcher.logging.MyLogger;
 import team.morpheus.launcher.model.MojangSession;
@@ -12,11 +13,13 @@ import team.morpheus.launcher.utils.OSUtils;
 
 public class Main {
 
-    public static final String build = "(v2.4.0 | 22_10_2025)";
+    public static final String build = "(v2.6.0 | 20_12_2025)";
     private static final MyLogger log = new MyLogger(Main.class);
 
     @Getter
     private static Vanilla vanilla;
+    @Getter
+    private static Morpheus morpheus;
     @Getter
     private static MojangSession mojangSession;
 
@@ -44,7 +47,15 @@ public class Main {
 
             /* Select operative mode */
             if (cmd.getOptionValue(var2) != null) {
-                (vanilla = new Vanilla(cmd.getOptionValue(var2), cmd.hasOption(var7), cmd.hasOption(var9))).prepareLaunch(gameFolder);
+                String version = cmd.getOptionValue(var2);
+
+                if (version.startsWith("morpheus")) {
+                    // Setup morpheus client
+                    (morpheus = new Morpheus(version, cmd.hasOption(var9))).prepareLaunch(gameFolder);
+                } else {
+                    // Setup vanilla/modded client
+                    (vanilla = new Vanilla(version, cmd.hasOption(var7), cmd.hasOption(var9))).prepareLaunch(gameFolder);
+                }
             }
         } else {
             /* Print Help */

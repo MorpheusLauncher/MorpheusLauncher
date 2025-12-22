@@ -9,6 +9,7 @@ import org.json.simple.parser.ParseException;
 import team.morpheus.launcher.logging.MyLogger;
 import team.morpheus.launcher.model.LauncherVariables;
 import team.morpheus.launcher.model.products.MojangProduct;
+import team.morpheus.launcher.model.products.MorpheusProduct;
 import team.morpheus.launcher.starters.GameLauncher;
 import team.morpheus.launcher.utils.*;
 import team.morpheus.launcher.utils.thread.DownloadFileTask;
@@ -42,7 +43,17 @@ public class Launcher {
     private JSONParser jsonParser = new JSONParser();
     public static final Environment env = new Environment();
 
+    public Launcher(LauncherVariables variables, MorpheusProduct.Product morpheusProduct) throws Exception {
+        env.setVariables(variables);
+        env.setMorpheus(morpheusProduct);
+    }
+
     public Launcher(LauncherVariables variables) throws Exception {
+        env.setVariables(variables);
+    }
+
+    public void launchGame() throws Exception {
+        LauncherVariables variables = env.getVariables();
         boolean isLatestVersion = false;
         try {
             /* Get all versions from mojang */
@@ -128,7 +139,8 @@ public class Launcher {
          * Because inside optifine, fabric or forge json there is a field called "inheritsFrom"
          * "inheritsFrom" basically describes on which vanilla version the modloader bases of */
         if (env.getGame().inheritsFrom != null) {
-            if (env.getVanilla() != null) env.setTarget(VersionUtils.findVersion(env.getVanilla(), env.getGame().inheritsFrom));
+            if (env.getVanilla() != null)
+                env.setTarget(VersionUtils.findVersion(env.getVanilla(), env.getGame().inheritsFrom));
 
             File inheritedVersionPath = makeDirectory(String.format("%s/versions/%s", env.getGameFolder().getPath(), env.getGame().inheritsFrom));
 
@@ -200,6 +212,8 @@ public class Launcher {
             }
         }
 
+        GameLauncher.LaunchMode launchMode = GameLauncher.LaunchMode.ClassLoader;
+
         /* Put the client jar to url list */
         if (Main.getVanilla() != null) {
             if (variables.isModded()) {
@@ -217,14 +231,20 @@ public class Launcher {
                 paths.addAll(setupLibraries(vanilla)); /* Append vanilla libraries */
             }
 
-            if (paths.add(jarFile.toURI().toURL())) log.info(String.format("loading: %s", jarFile.toURI().toURL()));
-
+            if (paths.add(jarFile.toURI().toURL())) log.info(String.format("Loading: %s", jarFile.toURI().toURL()));
             initDiscordRPC(buildRPCstatus(mcLowercase, vanilla.id));
+            if (variables.isClassPath()) launchMode = GameLauncher.LaunchMode.ClassPath;
+        } else if (Main.getMorpheus() != null) {
+            paths.addAll(setupLibraries(vanilla));
+            URL url;
+            for (MorpheusProduct.Product.Library library : env.getMorpheus().libraries) {
+                url = new URL(String.format("%s/downloads/morpheus-lite/%s.jar", Main.getMorpheusAPI(), library.name));
+                if (paths.add(url)) log.info(String.format("Loading: %s", url.toURI().toURL()));
+            }
+            url = new URL(String.format("%s/downloads/morpheus-lite/%s.jar", Main.getMorpheusAPI(), env.getMorpheus().id));
+            if (paths.add(url.toURI().toURL())) log.info(String.format("Loading: %s", url.toURI().toURL()));
+            initDiscordRPC(buildRPCstatus(mcLowercase, env.getMorpheus().id));
         }
-
-        GameLauncher.LaunchMode launchMode;
-        if (variables.isClassPath()) launchMode = GameLauncher.LaunchMode.ClassPath;
-        else launchMode = GameLauncher.LaunchMode.ClassLoader;
 
         new GameLauncher(env.getGame(), paths, launchMode, variables.isStartOnFirstThread()).launch(gameargs);
     }
