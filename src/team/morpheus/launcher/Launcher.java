@@ -541,10 +541,13 @@ public class Launcher {
 
     private static void initDiscordRPC(String status) throws Exception {
         String os_arch = OSUtils.getOSArch();
-        if (!(os_arch.contains("x86") || os_arch.contains("amd64"))) return;
-        long appID = 1061674345405100082L;
-        Discord discord = new Discord(appID);
-        discord.setActivity("In Partita", String.format("Playing: %s", status));
+        try {
+            Discord discord = new Discord(1061674345405100082L);
+            discord.setActivity("In Partita", String.format("Playing: %s", status));
+        } catch (Exception e) {
+            log.error("An error occurred with discord rich presence!");
+            e.printStackTrace();
+        }
     }
 
     private static String buildRPCstatus(String mcVersion, String gameVersion) {
