@@ -1,8 +1,6 @@
 package team.morpheus.launcher;
 
-import club.minnced.discord.rpc.DiscordEventHandlers;
-import club.minnced.discord.rpc.DiscordRPC;
-import club.minnced.discord.rpc.DiscordRichPresence;
+import me.lampadina.activity.Discord;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
@@ -11,7 +9,10 @@ import team.morpheus.launcher.model.LauncherVariables;
 import team.morpheus.launcher.model.products.MojangProduct;
 import team.morpheus.launcher.model.products.MorpheusProduct;
 import team.morpheus.launcher.starters.GameLauncher;
-import team.morpheus.launcher.utils.*;
+import team.morpheus.launcher.utils.CryptoEngine;
+import team.morpheus.launcher.utils.OSUtils;
+import team.morpheus.launcher.utils.Utils;
+import team.morpheus.launcher.utils.VersionUtils;
 import team.morpheus.launcher.utils.thread.DownloadFileTask;
 import team.morpheus.launcher.utils.thread.ParallelTasks;
 
@@ -24,10 +25,8 @@ import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -243,7 +242,7 @@ public class Launcher {
             }
             url = new URL(String.format("%s/downloads/morpheus-lite/%s.jar", Main.getMorpheusAPI(), env.getMorpheus().id));
             if (paths.add(url.toURI().toURL())) log.info(String.format("Loading: %s", url.toURI().toURL()));
-            initDiscordRPC(buildRPCstatus(mcLowercase, env.getMorpheus().id));
+            initDiscordRPC(String.format("Morpheus %s", vanilla.id));
         }
 
         new GameLauncher(env.getGame(), paths, launchMode, variables.isStartOnFirstThread()).launch(gameargs);
@@ -291,6 +290,11 @@ public class Launcher {
 
     /* This method picks libraries and put into a URL list */
     private List<URL> setupLibraries(MojangProduct.Game game) throws IOException, NoSuchAlgorithmException, InterruptedException {
+        String os_arch = OSUtils.getOSArch();
+        boolean isLinuxArm = OSUtils.getPlatform() == OSUtils.OS.linux && (os_arch.contains("arm") || os_arch.contains("aarch"));
+        boolean isLinuxRiscV = OSUtils.getPlatform() == OSUtils.OS.linux && os_arch.contains("riscv64");
+        boolean isRiscArch = isLinuxArm || isLinuxRiscV;
+
         List<URL> paths = new ArrayList<>();
         for (MojangProduct.Game.Library lib : game.libraries) {
             File libFolder = new File(String.format("%s/libraries", env.getGameFolder().getPath()));
@@ -306,12 +310,28 @@ public class Launcher {
                 if (artifact.path != null && !artifact.path.isEmpty()) {
                     /* Jar library local file path */
                     File file = new File(String.format("%s/%s", libFolder.getPath(), artifact.path));
+                    String[] split = lib.name.split(":");
+                    boolean isLwjgl3 = lib.name.contains("lwjgl") && split[2].contains("3.3");
+
+                    URL libUrl = null;
+                    boolean isCustomLib = false;
+                    if (isRiscArch && isLwjgl3) {
+                        if (split.length == 4) {
+                            libUrl = new URL(String.format("%s/downloads/extra-libs/%s-%s-%s.jar", Main.getMorpheusAPI(), split[1], split[3], os_arch.toLowerCase().replace("arm64", "aarch64")));
+                        } else if (split.length == 3) {
+                            libUrl = new URL(String.format("%s/downloads/extra-libs/%s.jar", Main.getMorpheusAPI(), split[1]));
+                        }
+                        isCustomLib = true;
+                    } else {
+                        libUrl = new URL(artifact.url);
+                    }
 
                     /* if the library jar doesn't exist or its hash is invalidated, download from mojang repo */
-                    if (artifact.url != null && !artifact.url.isEmpty() && (!file.exists() || file.exists() && !artifact.sha1.equals(CryptoEngine.fileHash(file, "SHA-1")))) {
-                        file.mkdirs();
+                    /* for custom libs, always download to ensure latest version */
+                    if (artifact.url != null && !artifact.url.isEmpty() && (isCustomLib || !file.exists() || file.exists() && !artifact.sha1.equals(CryptoEngine.fileHash(file, "SHA-1")))) {
+                        file.getParentFile().mkdirs();
                         ParallelTasks tasks = new ParallelTasks();
-                        tasks.add(new DownloadFileTask(new URL(artifact.url), file.getPath()));
+                        tasks.add(new DownloadFileTask(libUrl, file.getPath()));
                         tasks.go();
                     }
 
@@ -367,118 +387,110 @@ public class Launcher {
     }
 
     private void setupNatives(MojangProduct.Game game, File nativesFolder) throws MalformedURLException {
-        /* Find out what cpu architecture is the user machine, assuming they use baremetal os installation */
         String os_arch = OSUtils.getOSArch();
         boolean isArmProcessor = (os_arch.contains("arm") || os_arch.contains("aarch"));
         boolean isRiscVProcessor = os_arch.contains("riscv64");
 
+        Set<String> downloadedNatives = new HashSet<>();
+
+        BiConsumer<String, String> downloadOnce = (url, reason) -> {
+            try {
+                if (downloadedNatives.add(url)) {
+                    Utils.downloadAndUnzipNatives(new URL(url), nativesFolder, log);
+                    log.info(String.format("Downloaded and extracted %s (%s)", url, reason));
+                } else {
+                    log.debug(String.format("Skipped duplicate native %s", url));
+                }
+            } catch (MalformedURLException e) {
+                throw new RuntimeException(e);
+            }
+        };
+
         for (MojangProduct.Game.Library lib : game.libraries) {
             MojangProduct.Game.Classifiers classifiers = lib.downloads.classifiers;
             if (classifiers != null) {
-                /* Natives pojo model for windows */
-                MojangProduct.Game.NativesWindows windows32 = classifiers.natives_windows_32, windows64 = classifiers.natives_windows_64, windows = classifiers.natives_windows;
-                /* for gnu/linux */
+                MojangProduct.Game.NativesWindows win32 = classifiers.natives_windows_32;
+                MojangProduct.Game.NativesWindows win64 = classifiers.natives_windows_64;
+                MojangProduct.Game.NativesWindows win = classifiers.natives_windows;
                 MojangProduct.Game.NativesLinux linux = classifiers.natives_linux;
-                /* for osx/macos or whatever you want call it */
-                MojangProduct.Game.NativesOsx osx = classifiers.natives_osx, macos = classifiers.natives_macos;
+                MojangProduct.Game.NativesOsx osx = classifiers.natives_osx;
+                MojangProduct.Game.NativesOsx macos = classifiers.natives_macos;
 
                 switch (OSUtils.getPlatform()) {
-                    /* These seems "duplicated" but is needed for maintaing compatibility with old versions like 1.8.x */
                     case windows:
-                        if (windows32 != null) {
-                            Utils.downloadAndUnzipNatives(new URL(windows32.url), nativesFolder, log);
-                            log.info(String.format("Downloaded and extracted %s for %s", windows32.url, OSUtils.getPlatform()));
-                        }
-                        if (windows64 != null) {
-                            Utils.downloadAndUnzipNatives(new URL(windows64.url), nativesFolder, log);
-                            log.info(String.format("Downloaded and extracted %s for %s", windows64.url, OSUtils.getPlatform()));
-                        }
-                        if (windows != null) {
-                            Utils.downloadAndUnzipNatives(new URL(windows.url), nativesFolder, log);
-                            log.info(String.format("Downloaded and extracted %s for %s", windows.url, OSUtils.getPlatform()));
-                        }
+                        if (win32 != null) downloadOnce.accept(win32.url, "windows-32");
+                        if (win64 != null) downloadOnce.accept(win64.url, "windows-64");
+                        if (win != null) downloadOnce.accept(win.url, "windows");
                         break;
                     case linux:
-                        if (linux != null) {
-                            Utils.downloadAndUnzipNatives(new URL(linux.url), nativesFolder, log);
-                            log.info(String.format("Downloaded and extracted %s for %s", linux.url, OSUtils.getPlatform()));
-                        }
+                        if (isArmProcessor || isRiscVProcessor) break;
+                        if (linux != null) downloadOnce.accept(linux.url, "linux");
                         break;
-                    /* Dear mojang why you use different natives names in your json?? */
                     case macos:
-                        if (osx != null) {
-                            Utils.downloadAndUnzipNatives(new URL(osx.url), nativesFolder, log);
-                            log.info(String.format("Downloaded and extracted %s for %s", osx.url, OSUtils.getPlatform()));
-                        }
-                        if (macos != null) {
-                            Utils.downloadAndUnzipNatives(new URL(macos.url), nativesFolder, log);
-                            log.info(String.format("Downloaded and extracted %s for %s", macos.url, OSUtils.getPlatform()));
-                        }
+                        if (osx != null) downloadOnce.accept(osx.url, "osx");
+                        if (macos != null) downloadOnce.accept(macos.url, "macos");
                         break;
-                    /* Fallback error in case user have weird os like solaris or bsd */
                     default:
-                        log.error("Oops.. seem that your os isn't supported, ask help on https://discord.gg/aerXnBe");
+                        log.error("Unsupported OS platform");
                 }
             }
+
             /* Mojang with newer versions like 1.16+ introduces new format for natives in json model,
              * Plus this method provides recognition for eventual arm natives */
-            if (lib.name.contains("native") && lib.rules != null) {
-                String nativeName = lib.name;
-                String nativeURL = lib.downloads.artifact.url;
+            if (lib.name.contains("native") && lib.rules != null && checkRule(lib.rules)) {
+                boolean isArmNative = lib.name.contains("arm") || lib.name.contains("aarch");
+                boolean compatible = true;
 
-                /* Find out which natives allow on user os */
-                if (checkRule(lib.rules)) {
-                    boolean isArmNative = (lib.name.contains("arm") || lib.name.contains("aarch"));
-                    boolean compatible = true;
+                if (isArmNative && !isArmProcessor) compatible = false;
+                if (!isArmNative && isArmProcessor) compatible = false;
 
-                    if (isArmNative && !isArmProcessor) compatible = false; // natives ARM on x86 (cpu)
-                    if (!isArmNative && isArmProcessor) compatible = false; // natives x86 on ARM (cpu)
+                if (!compatible) continue;
 
-                    if (!compatible) continue;
-                    Utils.downloadAndUnzipNatives(new URL(nativeURL), nativesFolder, log);
-                    log.info(String.format("Downloaded and extracted %s for %s (%s)", nativeURL, OSUtils.getPlatform(), os_arch));
-                }
+                downloadOnce.accept(lib.downloads.artifact.url, "mojang-new-native");
             }
         }
         /* Additional code to download missing arm natives */
-        if (isArmProcessor || isRiscVProcessor) for (MojangProduct.Game.Library lib : game.libraries) {
-            switch (OSUtils.getPlatform()) {
-                case macos:
-                    if (!isArmProcessor) break; // if isn't apple silicon mac skip
-
-                    // LWJGL 2.X (up to 1.12.2)
-                    if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_osx != null && lib.downloads.classifiers.natives_osx.url.contains("lwjgl-platform-2")) {
-                        String zipUrl = String.format("%s/downloads/extra-natives/lwjgl-2-macos-aarch64.zip", Main.getMorpheusAPI());
-                        Utils.downloadAndUnzipNatives(new URL(zipUrl), nativesFolder, log);
-                        log.info(String.format("Downloaded and extracted %s for %s", zipUrl, OSUtils.getPlatform()));
-                    }
-                    break;
-                case linux:
-                    if (isArmProcessor) {
-                        // LWJGL 2.X (up to 1.12.2)
-                        if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
-                            String zipUrl = String.format("%s/downloads/extra-natives/lwjgl-2-linux-aarch64.zip", Main.getMorpheusAPI());
-                            Utils.downloadAndUnzipNatives(new URL(zipUrl), nativesFolder, log);
-                            log.info(String.format("Downloaded and extracted %s for %s", zipUrl, OSUtils.getPlatform()));
+        if (isArmProcessor || isRiscVProcessor) {
+            for (MojangProduct.Game.Library lib : game.libraries) {
+                switch (OSUtils.getPlatform()) {
+                    case macos:
+                        if (!isArmProcessor) break;
+                        // LWJGL 2.x
+                        if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_osx != null && lib.downloads.classifiers.natives_osx.url.contains("lwjgl-platform-2")) {
+                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-macos-aarch64.zip";
+                            downloadOnce.accept(url, "lwjgl2-macos-arm");
                         }
-                        // LWJGL 3.3 (1.19+)
-                        if (lib.name.contains("native") && lib.rules != null && checkRule(lib.rules) && lib.name.contains("lwjgl")) {
-                            String zipUrl = String.format("%s/downloads/extra-natives/lwjgl-3.3-linux-aarch64.zip", Main.getMorpheusAPI());
-                            Utils.downloadAndUnzipNatives(new URL(zipUrl), nativesFolder, log);
-                            log.info(String.format("Downloaded and extracted %s for %s", zipUrl, OSUtils.getPlatform()));
+                        break;
+                    case linux:
+                        if (isArmProcessor) {
+                            // LWJGL 2.x
+                            if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
+                                String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-aarch64.zip";
+                                downloadOnce.accept(url, "lwjgl2-linux-arm");
+                            }
+                            // LWJGL 3.3+
+                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules)) {
+                                String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3-linux-aarch64.zip";
+                                downloadOnce.accept(url, "lwjgl3-linux-arm");
+                            }
+                        } else if (isRiscVProcessor) {
+                            // LWJGL 2.x
+                            if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
+                                String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-riscv64.zip";
+                                downloadOnce.accept(url, "lwjgl2-linux-riscv64");
+                            }
+                            // LWJGL 3.3+
+                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules)) {
+                                String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3-linux-riscv64.zip";
+                                downloadOnce.accept(url, "lwjgl3-linux-riscv64");
+                            }
                         }
-                    } else if (isRiscVProcessor) {
-                        // LWJGL 2.X (up to 1.12.2)
-                        if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
-                            String zipUrl = String.format("%s/downloads/extra-natives/lwjgl-2-linux-riscv64.zip", Main.getMorpheusAPI());
-                            Utils.downloadAndUnzipNatives(new URL(zipUrl), nativesFolder, log);
-                            log.info(String.format("Downloaded and extracted %s for %s", zipUrl, OSUtils.getPlatform()));
-                        }
-                    }
-                    break;
+                        break;
+                }
             }
         }
     }
+
 
     private void setupAssets(MojangProduct.Game game) throws IOException, ParseException, InterruptedException {
         /* Download assets indexes from mojang repo */
@@ -530,29 +542,21 @@ public class Launcher {
     private static void initDiscordRPC(String status) throws Exception {
         String os_arch = OSUtils.getOSArch();
         if (!(os_arch.contains("x86") || os_arch.contains("amd64"))) return;
-
-        DiscordRPC lib = DiscordRPC.INSTANCE;
-        DiscordEventHandlers handlers = new DiscordEventHandlers();
-        lib.Discord_Initialize("1061674345405100082", handlers, true, "");
-        DiscordRichPresence presence = new DiscordRichPresence();
-
-        presence.startTimestamp = System.currentTimeMillis() / 1000;
-        presence.details = String.format("Playing: %s", status);
-        presence.largeImageKey = "morpheus";
-        presence.largeImageText = "";
-        lib.Discord_UpdatePresence(presence);
+        long appID = 1061674345405100082L;
+        Discord discord = new Discord(appID);
+        discord.setActivity("In Partita", String.format("Playing: %s", status));
     }
 
     private static String buildRPCstatus(String mcVersion, String gameVersion) {
-        String gameType = "vanilla";
+        String gameType = "Vanilla";
         if (mcVersion.contains("forge")) {
-            gameType = "forge";
+            gameType = "Forge";
         } else if (mcVersion.contains("fabric")) {
-            gameType = "fabric";
+            gameType = "Fabric";
         } else if (mcVersion.contains("optifine")) {
-            gameType = "optifine";
+            gameType = "OptiFine";
         } else if (mcVersion.contains("quilt")) {
-            gameType = "quilt";
+            gameType = "Quilt";
         }
         return String.format("%s %s", gameType, gameVersion);
     }
