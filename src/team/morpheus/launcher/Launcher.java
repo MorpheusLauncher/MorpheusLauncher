@@ -221,11 +221,15 @@ public class Launcher {
 
                 paths = dedupeLibraries(paths);
 
-                /* Due to unknown modloader reasons, we need to load even the inherited (vanilla) version */
-                jarFile = new File(String.format("%s/%s.jar", (new File(String.format("%s/versions/%s", env.getGameFolder().getPath(), vanilla.id))).getPath(), vanilla.id));
+                if (usesJavaModules(env.getGame())) {
+                    log.info("Classpath compatibility mode will not activate to prevent twice version loading");
+                } else {
+                    /* Due to unknown modloader reasons, we need to load even the inherited (vanilla) version */
+                    jarFile = new File(String.format("%s/%s.jar", (new File(String.format("%s/versions/%s", env.getGameFolder().getPath(), vanilla.id))).getPath(), vanilla.id));
 
-                /* Set the java.class.path to make modloaders like forge/fabric to work */
-                makeModloaderCompatibility(paths, jarFile);
+                    /* Set the java.class.path to make modloaders like forge/fabric to work */
+                    makeModloaderCompatibility(paths, jarFile);
+                }
             } else {
                 paths.addAll(setupLibraries(vanilla)); /* Append vanilla libraries */
             }
@@ -245,7 +249,17 @@ public class Launcher {
             initDiscordRPC(String.format("Morpheus %s", vanilla.id));
         }
 
-        new GameLauncher(env.getGame(), paths, launchMode, variables.isStartOnFirstThread()).launch(gameargs);
+        new GameLauncher(env.getGame(), vanilla, paths, launchMode, variables.isStartOnFirstThread()).launch(gameargs);
+    }
+
+    private boolean usesJavaModules(MojangProduct.Game game) {
+        if (game.arguments == null || game.arguments.jvm == null) return false;
+        for (Object o : game.arguments.jvm) {
+            String s = o.toString();
+            if (s.contains("--add-modules") || s.contains("--add-opens") || s.contains("--add-exports") || s.equals("-p") || s.contains("--module-path"))
+                return true;
+        }
+        return false;
     }
 
     private void overwriteJsonId(String mcVersion, File jsonFile) throws IOException, ParseException {
@@ -323,7 +337,7 @@ public class Launcher {
                         }
                         isCustomLib = true;
                     } else {
-                        libUrl = new URL(artifact.url);
+                        if (artifact.url != null && !artifact.url.isEmpty()) libUrl = new URL(artifact.url);
                     }
 
                     /* if the library jar doesn't exist or its hash is invalidated, download from mojang repo */

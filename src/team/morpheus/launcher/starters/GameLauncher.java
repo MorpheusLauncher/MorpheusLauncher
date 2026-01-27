@@ -15,13 +15,13 @@ public class GameLauncher {
 
     private final ILibraryManager launcher;
 
-    public GameLauncher(MojangProduct.Game game, List<URL> libraries, LaunchMode mode, boolean startOnFirstThread) {
+    public GameLauncher(MojangProduct.Game game, MojangProduct.Game vanilla, List<URL> libraries, LaunchMode mode, boolean startOnFirstThread) {
         switch (mode) {
             case ClassLoader:
                 this.launcher = new ClassloaderLauncher(game, libraries);
                 break;
             case ClassPath:
-                this.launcher = new ClasspathLauncher(game, libraries, startOnFirstThread);
+                this.launcher = new ClasspathLauncher(game, vanilla, libraries, startOnFirstThread);
                 break;
             default:
                 throw new IllegalArgumentException("Unknown launch mode");

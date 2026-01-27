@@ -13,7 +13,7 @@ import team.morpheus.launcher.utils.OSUtils;
 
 public class Main {
 
-    public static final String build = "(v2.8.1 | 10_01_2026)";
+    public static final String name = "Morpheus", version = "v2.9.0", build = "27_01_2026";
     private static final MyLogger log = new MyLogger(Main.class);
 
     @Getter
@@ -25,7 +25,7 @@ public class Main {
 
     // NOTE: it's important to set -Djava.library.path by giving natives path, else the game won't start!
     public static void main(String[] args) throws Exception {
-        log.info(String.format("Morpheus Launcher %s | Lampadina_17 (by-nc-sa)", build));
+        log.info(String.format("%s Launcher (%s | %s) | Lampadina_17 (by-nc-sa)", name, version, build));
 
         Option var2 = Option.builder("v").longOpt("version").argName("version").hasArg().desc("Minecraft version to be launched").build();
         Option var3 = Option.builder("n").longOpt("minecraftUsername").argName("username").hasArg().desc("Minecraft player username (required)").build();
