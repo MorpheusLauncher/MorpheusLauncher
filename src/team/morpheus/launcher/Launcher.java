@@ -329,7 +329,7 @@ public class Launcher {
                     /* Jar library local file path */
                     File file = new File(String.format("%s/%s", libFolder.getPath(), artifact.path));
                     String[] split = lib.name.split(":");
-                    boolean isLwjgl33 = lib.name.contains("lwjgl") && split[2].contains("3.3");
+                    boolean isLwjgl33 = lib.name.contains("lwjgl") && split[2].startsWith("3.3");
                     boolean isJna = lib.name.contains("jna");
                     boolean isJavaObjcBridge = lib.name.contains("java-objc-bridge");
 
@@ -483,15 +483,10 @@ public class Launcher {
                         if (linux != null) downloadOnce.accept(linux.url, "linux");
                         break;
                     case macos:
-                        // Skip LWJGL 3.1.x and 3.2.x natives on macOS ARM - we use 3.3.1 instead
-                        if (isArmProcessor) {
-                            boolean isLwjgl31or32Native = lib.name.contains("lwjgl") && (lib.name.contains("3.1") || lib.name.contains("3.2")) && (osx != null || macos != null);
-                            if (isLwjgl31or32Native) {
-                                log.debug(String.format("Skipping LWJGL 3.1.x/3.2.x native %s (using 3.3.1 ARM64)", lib.name));
-                                break;
-                            }
+                        if (isArmProcessor && lib.name.contains("lwjgl") && (lib.name.contains("3.1") || lib.name.contains("3.2")) && (osx != null || macos != null)) {
+                            log.debug(String.format("Skipping LWJGL 3.1.x/3.2.x natives %s (using 3.3.1 ARM64)", lib.name));
+                            break;
                         }
-
                         if (osx != null) downloadOnce.accept(osx.url, "osx");
                         if (macos != null) downloadOnce.accept(macos.url, "macos");
                         break;
@@ -514,74 +509,42 @@ public class Launcher {
                 downloadOnce.accept(lib.downloads.artifact.url, "mojang-new-native");
             }
         }
-
         /* Additional code to download missing arm natives */
         if (isArmProcessor || isRiscVProcessor) {
-            boolean hasLwjgl2 = false;
-            boolean hasLwjgl31or32 = false; // Only for 3.1.x and 3.2.x (not 3.3.x)
-
-            // First pass: detect which LWJGL versions are needed
             for (MojangProduct.Game.Library lib : game.libraries) {
-                if (lib.downloads.classifiers != null) {
-                    if (OSUtils.getPlatform() == OSUtils.OS.macos && isArmProcessor) {
-                        if (lib.downloads.classifiers.natives_osx != null && lib.downloads.classifiers.natives_osx.url.contains("lwjgl-platform-2")) {
-                            hasLwjgl2 = true;
+                switch (OSUtils.getPlatform()) {
+                    case macos:
+                        if (!isArmProcessor) break;
+                        // LWJGL 2.x
+                        if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_osx != null && lib.downloads.classifiers.natives_osx.url.contains("lwjgl-platform-2")) {
+                            downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-macos-aarch64.zip", "lwjgl2-macos-arm");
+                            break;
                         }
-                        // Check for LWJGL 3.1 and 3.2 only (3.3+ has native ARM64 support from Mojang)
-                        if (lib.name.contains("lwjgl") && (lib.name.contains("3.1") || lib.name.contains("3.2"))) {
-                            hasLwjgl31or32 = true;
+                        // LWJGL 3.3+
+                        downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.1-macos-aarch64.zip", "lwjgl3-linux-arm");
+                        break;
+                    case linux:
+                        if (isArmProcessor) {
+                            // LWJGL 2.x
+                            if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
+                                downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-aarch64.zip", "lwjgl2-linux-arm");
+                            }
+                            // LWJGL 3.3+
+                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules)) {
+                                downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.6-linux-aarch64.zip", "lwjgl3-linux-arm");
+                            }
+                        } else if (isRiscVProcessor) {
+                            // LWJGL 2.x
+                            if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
+                                downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-riscv64.zip", "lwjgl2-linux-riscv64");
+                            }
+                            // LWJGL 3.3+
+                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules)) {
+                                downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.6-linux-riscv64.zip", "lwjgl3-linux-riscv64");
+                            }
                         }
-                    }
+                        break;
                 }
-
-                if (lib.name.contains("native") && lib.name.contains("lwjgl")) {
-                    if (OSUtils.getPlatform() == OSUtils.OS.macos && isArmProcessor) {
-                        // Only flag for 3.1 and 3.2 - skip 3.3
-                        if (lib.name.contains("3.1") || lib.name.contains("3.2")) {
-                            hasLwjgl31or32 = true;
-                        }
-                    } else if (OSUtils.getPlatform() == OSUtils.OS.linux && isArmProcessor) {
-                        hasLwjgl31or32 = true;
-                    } else if (OSUtils.getPlatform() == OSUtils.OS.linux && isRiscVProcessor) {
-                        hasLwjgl31or32 = true;
-                    }
-                }
-            }
-
-            // Second pass: download the appropriate ARM natives
-            switch (OSUtils.getPlatform()) {
-                case macos:
-                    if (!isArmProcessor) break;
-                    if (hasLwjgl2) {
-                        String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-macos-aarch64.zip";
-                        downloadOnce.accept(url, "lwjgl2-macos-arm");
-                    }
-                    if (hasLwjgl31or32) {
-                        String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.1-macos-aarch64.zip";
-                        downloadOnce.accept(url, "lwjgl3-macos-arm");
-                    }
-                    break;
-                case linux:
-                    if (isArmProcessor) {
-                        if (hasLwjgl2) {
-                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-aarch64.zip";
-                            downloadOnce.accept(url, "lwjgl2-linux-arm");
-                        }
-                        if (hasLwjgl31or32) {
-                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.6-linux-aarch64.zip";
-                            downloadOnce.accept(url, "lwjgl3-linux-arm");
-                        }
-                    } else if (isRiscVProcessor) {
-                        if (hasLwjgl2) {
-                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-riscv64.zip";
-                            downloadOnce.accept(url, "lwjgl2-linux-riscv64");
-                        }
-                        if (hasLwjgl31or32) {
-                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.6-linux-riscv64.zip";
-                            downloadOnce.accept(url, "lwjgl3-linux-riscv64");
-                        }
-                    }
-                    break;
             }
         }
     }
