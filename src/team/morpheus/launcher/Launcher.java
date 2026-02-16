@@ -305,9 +305,13 @@ public class Launcher {
     /* This method picks libraries and put into a URL list */
     private List<URL> setupLibraries(MojangProduct.Game game) throws IOException, NoSuchAlgorithmException, InterruptedException {
         String os_arch = OSUtils.getOSArch();
-        boolean isLinuxArm = OSUtils.getPlatform() == OSUtils.OS.linux && (os_arch.contains("arm") || os_arch.contains("aarch"));
-        boolean isLinuxRiscV = OSUtils.getPlatform() == OSUtils.OS.linux && os_arch.contains("riscv64");
-        boolean isRiscArch = isLinuxArm || isLinuxRiscV;
+
+        boolean isArmProcessor = (os_arch.contains("arm") || os_arch.contains("aarch"));
+        boolean isRiscVProcessor = os_arch.contains("riscv64");
+
+        boolean isMacArm = OSUtils.getPlatform() == OSUtils.OS.macos && isArmProcessor;
+        boolean isLinuxArm = OSUtils.getPlatform() == OSUtils.OS.linux && isArmProcessor;
+        boolean isLinuxRiscV = OSUtils.getPlatform() == OSUtils.OS.linux && isRiscVProcessor;
 
         List<URL> paths = new ArrayList<>();
         for (MojangProduct.Game.Library lib : game.libraries) {
@@ -325,24 +329,54 @@ public class Launcher {
                     /* Jar library local file path */
                     File file = new File(String.format("%s/%s", libFolder.getPath(), artifact.path));
                     String[] split = lib.name.split(":");
-                    boolean isLwjgl3 = lib.name.contains("lwjgl") && split[2].contains("3.3");
+                    boolean isLwjgl33 = lib.name.contains("lwjgl") && split[2].contains("3.3");
+                    boolean isJna = lib.name.contains("jna");
+                    boolean isJavaObjcBridge = lib.name.contains("java-objc-bridge");
 
                     URL libUrl = null;
                     boolean isCustomLib = false;
-                    if (isRiscArch && isLwjgl3) {
-                        if (split.length == 4) {
-                            libUrl = new URL(String.format("%s/downloads/extra-libs/%s-%s-%s.jar", Main.getMorpheusAPI(), split[1], split[3], os_arch.toLowerCase().replace("arm64", "aarch64")));
-                        } else if (split.length == 3) {
-                            libUrl = new URL(String.format("%s/downloads/extra-libs/%s.jar", Main.getMorpheusAPI(), split[1]));
+
+                    if (isMacArm) {
+                        if (lib.name.contains("lwjgl") && (split[2].startsWith("3.1") || split[2].startsWith("3.2"))) {
+                            if (split.length == 4) {
+                                file = new File(String.format("%s/org/lwjgl/%s/3.3.1/%s-3.3.1-natives-macos-arm64.jar", libFolder.getPath(), split[1], split[1]));
+                                libUrl = new URL(String.format("%s/downloads/extra-libs/lwjgl-3.3.1/%s-natives-arm64.jar", Main.getMorpheusAPI(), split[1]));
+                            } else if (split.length == 3) {
+                                file = new File(String.format("%s/org/lwjgl/%s/3.3.1/%s-3.3.1.jar", libFolder.getPath(), split[1], split[1]));
+                                libUrl = new URL(String.format("%s/downloads/extra-libs/lwjgl-3.3.1/%s.jar", Main.getMorpheusAPI(), split[1]));
+                            }
+                            isCustomLib = true;
+                        } else {
+                            if (artifact.url != null && !artifact.url.isEmpty()) libUrl = new URL(artifact.url);
                         }
-                        isCustomLib = true;
+                        if (isJna) {
+                            // Use ARM64-compatible JNA for macOS ARM (5.18.1+ has native ARM64 support)
+                            file = new File(String.format("%s/net/java/dev/jna/jna/5.18.1/jna-5.18.1.jar", libFolder.getPath()));
+                            libUrl = new URL(String.format("%s/downloads/extra-libs/jna-5.18.1.jar", Main.getMorpheusAPI()));
+                            isCustomLib = true;
+                        }
+                        if (isJavaObjcBridge) {
+                            // Use ARM64-compatible java-objc-bridge for macOS ARM (1.2.0+ has native ARM64 support)
+                            file = new File(String.format("%s/ca/weblite/java-objc-bridge/1.2.0/java-objc-bridge-1.2.0.jar", libFolder.getPath()));
+                            libUrl = new URL(String.format("%s/downloads/extra-libs/java-objc-bridge-1.2.0.jar", Main.getMorpheusAPI()));
+                            isCustomLib = true;
+                        }
+                    } else if (isLinuxArm || isLinuxRiscV) {
+                        if (isLwjgl33) {
+                            if (split.length == 4) {
+                                libUrl = new URL(String.format("%s/downloads/extra-libs/lwjgl-3.3.6/%s-%s-%s.jar", Main.getMorpheusAPI(), split[1], split[3], os_arch.toLowerCase().replace("arm64", "aarch64")));
+                            } else if (split.length == 3) {
+                                libUrl = new URL(String.format("%s/downloads/extra-libs/lwjgl-3.3.6/%s.jar", Main.getMorpheusAPI(), split[1]));
+                            }
+                            isCustomLib = true;
+                        }
                     } else {
                         if (artifact.url != null && !artifact.url.isEmpty()) libUrl = new URL(artifact.url);
                     }
 
                     /* if the library jar doesn't exist or its hash is invalidated, download from mojang repo */
                     /* for custom libs, always download to ensure latest version */
-                    if (artifact.url != null && !artifact.url.isEmpty() && (isCustomLib || !file.exists() || file.exists() && !artifact.sha1.equals(CryptoEngine.fileHash(file, "SHA-1")))) {
+                    if (libUrl != null && (isCustomLib || !file.exists() || file.exists() && !artifact.sha1.equals(CryptoEngine.fileHash(file, "SHA-1")))) {
                         file.getParentFile().mkdirs();
                         ParallelTasks tasks = new ParallelTasks();
                         tasks.add(new DownloadFileTask(libUrl, file.getPath()));
@@ -350,7 +384,8 @@ public class Launcher {
                     }
 
                     /* Append the library path to local list if not present */
-                    if (!paths.contains(file.toURI().toURL()) && paths.add(file.toURI().toURL())) {
+                    if (!paths.contains(file.toURI().toURL())) {
+                        paths.add(file.toURI().toURL());
                         log.info(String.format("Loading: %s", file.toURI().toURL()));
                     }
                 }
@@ -358,6 +393,12 @@ public class Launcher {
 
             /* Reconstructs library path from name and eventually download it, this is used by old json formats and is even used by modloaders */
             String[] namesplit = lib.name.split(":");
+
+            /* Skip LWJGL 3.x on macOS ARM */
+            if (isMacArm && lib.name.contains("lwjgl") && namesplit.length >= 3 && namesplit[2].matches("3\\..*")) {
+                continue;
+            }
+
             String libpath = String.format("%s/%s/%s/%s-%s.jar", namesplit[0].replace(".", "/"), namesplit[1], namesplit[2], namesplit[1], namesplit[2]);
             File libfile = new File(String.format("%s/%s", libFolder.getPath(), libpath));
 
@@ -378,7 +419,8 @@ public class Launcher {
             }
 
             /* Append the library path to local list if not present */
-            if (!paths.contains(libfile.toURI().toURL()) && paths.add(libfile.toURI().toURL())) {
+            if (!paths.contains(libfile.toURI().toURL())) {
+                paths.add(libfile.toURI().toURL());
                 log.info(String.format("Loading: %s", libfile.toURI().toURL()));
             }
         }
@@ -441,6 +483,15 @@ public class Launcher {
                         if (linux != null) downloadOnce.accept(linux.url, "linux");
                         break;
                     case macos:
+                        // Skip LWJGL 3.1.x and 3.2.x natives on macOS ARM - we use 3.3.1 instead
+                        if (isArmProcessor) {
+                            boolean isLwjgl31or32Native = lib.name.contains("lwjgl") && (lib.name.contains("3.1") || lib.name.contains("3.2")) && (osx != null || macos != null);
+                            if (isLwjgl31or32Native) {
+                                log.debug(String.format("Skipping LWJGL 3.1.x/3.2.x native %s (using 3.3.1 ARM64)", lib.name));
+                                break;
+                            }
+                        }
+
                         if (osx != null) downloadOnce.accept(osx.url, "osx");
                         if (macos != null) downloadOnce.accept(macos.url, "macos");
                         break;
@@ -463,48 +514,77 @@ public class Launcher {
                 downloadOnce.accept(lib.downloads.artifact.url, "mojang-new-native");
             }
         }
+
         /* Additional code to download missing arm natives */
         if (isArmProcessor || isRiscVProcessor) {
+            boolean hasLwjgl2 = false;
+            boolean hasLwjgl31or32 = false; // Only for 3.1.x and 3.2.x (not 3.3.x)
+
+            // First pass: detect which LWJGL versions are needed
             for (MojangProduct.Game.Library lib : game.libraries) {
-                switch (OSUtils.getPlatform()) {
-                    case macos:
-                        if (!isArmProcessor) break;
-                        // LWJGL 2.x
-                        if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_osx != null && lib.downloads.classifiers.natives_osx.url.contains("lwjgl-platform-2")) {
-                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-macos-aarch64.zip";
-                            downloadOnce.accept(url, "lwjgl2-macos-arm");
+                if (lib.downloads.classifiers != null) {
+                    if (OSUtils.getPlatform() == OSUtils.OS.macos && isArmProcessor) {
+                        if (lib.downloads.classifiers.natives_osx != null && lib.downloads.classifiers.natives_osx.url.contains("lwjgl-platform-2")) {
+                            hasLwjgl2 = true;
                         }
-                        break;
-                    case linux:
-                        if (isArmProcessor) {
-                            // LWJGL 2.x
-                            if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
-                                String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-aarch64.zip";
-                                downloadOnce.accept(url, "lwjgl2-linux-arm");
-                            }
-                            // LWJGL 3.3+
-                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules)) {
-                                String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3-linux-aarch64.zip";
-                                downloadOnce.accept(url, "lwjgl3-linux-arm");
-                            }
-                        } else if (isRiscVProcessor) {
-                            // LWJGL 2.x
-                            if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
-                                String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-riscv64.zip";
-                                downloadOnce.accept(url, "lwjgl2-linux-riscv64");
-                            }
-                            // LWJGL 3.3+
-                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules)) {
-                                String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3-linux-riscv64.zip";
-                                downloadOnce.accept(url, "lwjgl3-linux-riscv64");
-                            }
+                        // Check for LWJGL 3.1 and 3.2 only (3.3+ has native ARM64 support from Mojang)
+                        if (lib.name.contains("lwjgl") && (lib.name.contains("3.1") || lib.name.contains("3.2"))) {
+                            hasLwjgl31or32 = true;
                         }
-                        break;
+                    }
                 }
+
+                if (lib.name.contains("native") && lib.name.contains("lwjgl")) {
+                    if (OSUtils.getPlatform() == OSUtils.OS.macos && isArmProcessor) {
+                        // Only flag for 3.1 and 3.2 - skip 3.3
+                        if (lib.name.contains("3.1") || lib.name.contains("3.2")) {
+                            hasLwjgl31or32 = true;
+                        }
+                    } else if (OSUtils.getPlatform() == OSUtils.OS.linux && isArmProcessor) {
+                        hasLwjgl31or32 = true;
+                    } else if (OSUtils.getPlatform() == OSUtils.OS.linux && isRiscVProcessor) {
+                        hasLwjgl31or32 = true;
+                    }
+                }
+            }
+
+            // Second pass: download the appropriate ARM natives
+            switch (OSUtils.getPlatform()) {
+                case macos:
+                    if (!isArmProcessor) break;
+                    if (hasLwjgl2) {
+                        String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-macos-aarch64.zip";
+                        downloadOnce.accept(url, "lwjgl2-macos-arm");
+                    }
+                    if (hasLwjgl31or32) {
+                        String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.1-macos-aarch64.zip";
+                        downloadOnce.accept(url, "lwjgl3-macos-arm");
+                    }
+                    break;
+                case linux:
+                    if (isArmProcessor) {
+                        if (hasLwjgl2) {
+                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-aarch64.zip";
+                            downloadOnce.accept(url, "lwjgl2-linux-arm");
+                        }
+                        if (hasLwjgl31or32) {
+                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.6-linux-aarch64.zip";
+                            downloadOnce.accept(url, "lwjgl3-linux-arm");
+                        }
+                    } else if (isRiscVProcessor) {
+                        if (hasLwjgl2) {
+                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-riscv64.zip";
+                            downloadOnce.accept(url, "lwjgl2-linux-riscv64");
+                        }
+                        if (hasLwjgl31or32) {
+                            String url = Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.6-linux-riscv64.zip";
+                            downloadOnce.accept(url, "lwjgl3-linux-riscv64");
+                        }
+                    }
+                    break;
             }
         }
     }
-
 
     private void setupAssets(MojangProduct.Game game) throws IOException, ParseException, InterruptedException {
         /* Download assets indexes from mojang repo */
