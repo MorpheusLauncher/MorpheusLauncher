@@ -1,5 +1,6 @@
 package team.morpheus.launcher;
 
+import lombok.Getter;
 import me.lampadina.activity.Discord;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
@@ -313,7 +314,9 @@ public class Launcher {
         boolean isLinuxArm = OSUtils.getPlatform() == OSUtils.OS.linux && isArmProcessor;
         boolean isLinuxRiscV = OSUtils.getPlatform() == OSUtils.OS.linux && isRiscVProcessor;
 
-        List<URL> paths = new ArrayList<>();
+        ParallelTasks tasks = new ParallelTasks();
+        LinkedList<URL> toLoad = new LinkedList<>();
+
         for (MojangProduct.Game.Library lib : game.libraries) {
             File libFolder = new File(String.format("%s/libraries", env.getGameFolder().getPath()));
             /* Resolve libraries from json links */
@@ -378,16 +381,11 @@ public class Launcher {
                     /* for custom libs, always download to ensure latest version */
                     if (libUrl != null && (isCustomLib || !file.exists() || file.exists() && !artifact.sha1.equals(CryptoEngine.fileHash(file, "SHA-1")))) {
                         file.getParentFile().mkdirs();
-                        ParallelTasks tasks = new ParallelTasks();
                         tasks.add(new DownloadFileTask(libUrl, file.getPath()));
-                        tasks.go();
                     }
 
-                    /* Append the library path to local list if not present */
-                    if (!paths.contains(file.toURI().toURL())) {
-                        paths.add(file.toURI().toURL());
-                        log.info(String.format("Loading: %s", file.toURI().toURL()));
-                    }
+                    /* Populate the lib path list */
+                    if (!toLoad.contains(file.toURI().toURL())) toLoad.add(file.toURI().toURL());
                 }
             }
 
@@ -410,20 +408,21 @@ public class Launcher {
             try {
                 int response = ((HttpURLConnection) downloadsource.openConnection()).getResponseCode();
                 if (!libfile.exists() && response == 200) {
-                    libfile.mkdirs();
-                    ParallelTasks tasks = new ParallelTasks();
+                    libfile.getParentFile().mkdirs();
                     tasks.add(new DownloadFileTask(downloadsource, libfile.getPath()));
-                    tasks.go();
                 }
             } catch (Exception e) {
             }
 
-            /* Append the library path to local list if not present */
-            if (!paths.contains(libfile.toURI().toURL())) {
-                paths.add(libfile.toURI().toURL());
-                log.info(String.format("Loading: %s", libfile.toURI().toURL()));
-            }
+            if (!toLoad.contains(libfile.toURI().toURL())) toLoad.add(libfile.toURI().toURL());
         }
+
+        tasks.go();
+
+        /* Append the library path to local list if not present */
+        List<URL> paths = new ArrayList<>(toLoad);
+        toLoad.forEach(url -> log.info(String.format("Loading: %s", url)));
+
         return paths;
     }
 
@@ -560,6 +559,8 @@ public class Launcher {
             log.info(indexesPath.getPath() + " was created");
         }
 
+        ParallelTasks tasks = new ParallelTasks();
+
         /* Fetch all the entries and read properties */
         JSONObject json_objects = (JSONObject) ((JSONObject) jsonParser.parse(new FileReader(indexesPath))).get("objects");
         json_objects.keySet().forEach(keyStr -> {
@@ -585,19 +586,18 @@ public class Launcher {
                 if (!objectsPath.exists() || objectsPath.exists() && !hash.equals(CryptoEngine.fileHash(objectsPath, "SHA-1"))) {
                     objectsPath.mkdirs();
                     URL object_url = new URL(String.format("%s/%s/%s", Main.getAssetsURL(), directory, hash));
-
-                    ParallelTasks tasks = new ParallelTasks();
                     tasks.add(new DownloadFileTask(object_url, objectsPath.getPath()));
-                    tasks.go();
                 }
             } catch (Exception e) {
                 e.printStackTrace();
             }
         });
+
+        /* Download all assets */
+        tasks.go();
     }
 
-    private static void initDiscordRPC(String status) throws Exception {
-        String os_arch = OSUtils.getOSArch();
+    private static void initDiscordRPC(String status) {
         try {
             Discord discord = new Discord(1061674345405100082L);
             discord.setActivity("In Partita", String.format("Playing: %s", status));
@@ -677,6 +677,7 @@ public class Launcher {
         }
     }
 
+    @Getter
     private static class LibEntry {
         private final String version;
         private final URL url;
@@ -684,14 +685,6 @@ public class Launcher {
         public LibEntry(String version, URL url) {
             this.version = version;
             this.url = url;
-        }
-
-        public String getVersion() {
-            return version;
-        }
-
-        public URL getUrl() {
-            return url;
         }
     }
 }
