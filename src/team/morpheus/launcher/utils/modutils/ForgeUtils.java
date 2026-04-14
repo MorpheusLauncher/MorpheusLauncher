@@ -514,17 +514,31 @@ public class ForgeUtils {
 
     /**
      * Replaces all {VAR} tokens in a string with their resolved values.
-     * Artifact references [coord] in the resulting vars are also resolved.
+     * Also resolves bare artifact references [group:artifact:version@ext]
+     * that appear directly as processor arguments (not inside a {VAR}).
      */
     private static String resolveVar(String input, Map<String, String> vars) {
-        if (!input.contains("{")) return input;
-
         String result = input;
+
+        // Substitute {VAR} tokens from the resolved vars map
         for (Map.Entry<String, String> e : vars.entrySet()) {
             if (result.contains(e.getKey())) {
                 result = result.replace(e.getKey(), e.getValue());
             }
         }
+
+        // If the whole argument (after substitution) is still a bare artifact
+        // reference like [group:artifact:version@ext], resolve it to a library path
+        if (result.startsWith("[") && result.endsWith("]")) {
+            String coord = result.substring(1, result.length() - 1);
+            // librariesDir is not directly available here, so we reconstruct it
+            // from {LIBRARY_DIR} which was placed into the vars map earlier
+            String libDir = vars.get("{LIBRARY_DIR}");
+            if (libDir != null) {
+                result = new File(libDir, coordToPath(coord)).getAbsolutePath();
+            }
+        }
+
         return result;
     }
 }

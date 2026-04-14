@@ -332,7 +332,12 @@ public class Launcher {
                     /* Jar library local file path */
                     File file = new File(String.format("%s/%s", libFolder.getPath(), artifact.path));
                     String[] split = lib.name.split(":");
-                    boolean isLwjgl33 = lib.name.contains("lwjgl") && split[2].startsWith("3.3");
+
+                    boolean isLwjgl = lib.name.contains("lwjgl");
+                    boolean isLwjgl31 = isLwjgl && split[2].startsWith("3.1");
+                    boolean isLwjgl32 = isLwjgl && split[2].startsWith("3.2");
+                    boolean isLwjgl33 = isLwjgl && split[2].startsWith("3.3");
+                    boolean isLwjgl34 = isLwjgl && split[2].startsWith("3.4");
                     boolean isJna = lib.name.contains("jna");
                     boolean isJavaObjcBridge = lib.name.contains("java-objc-bridge");
 
@@ -340,7 +345,7 @@ public class Launcher {
                     boolean isCustomLib = false;
 
                     if (isMacArm) {
-                        if (lib.name.contains("lwjgl") && (split[2].startsWith("3.1") || split[2].startsWith("3.2"))) {
+                        if (isLwjgl31 || isLwjgl32) {
                             if (split.length == 4) {
                                 file = new File(String.format("%s/org/lwjgl/%s/3.3.1/%s-3.3.1-natives-macos-arm64.jar", libFolder.getPath(), split[1], split[1]));
                                 libUrl = new URL(String.format("%s/downloads/extra-libs/lwjgl-3.3.1/%s-natives-arm64.jar", Main.getMorpheusAPI(), split[1]));
@@ -370,6 +375,13 @@ public class Launcher {
                                 libUrl = new URL(String.format("%s/downloads/extra-libs/lwjgl-3.3.6/%s-%s-%s.jar", Main.getMorpheusAPI(), split[1], split[3], os_arch.toLowerCase().replace("arm64", "aarch64")));
                             } else if (split.length == 3) {
                                 libUrl = new URL(String.format("%s/downloads/extra-libs/lwjgl-3.3.6/%s.jar", Main.getMorpheusAPI(), split[1]));
+                            }
+                            isCustomLib = true;
+                        } else if (isLwjgl34) {
+                            if (split.length == 4) {
+                                libUrl = new URL(String.format("%s/downloads/extra-libs/lwjgl-3.4.1/%s-%s-%s.jar", Main.getMorpheusAPI(), split[1], split[3], os_arch.toLowerCase().replace("arm64", "aarch64")));
+                            } else if (split.length == 3) {
+                                libUrl = new URL(String.format("%s/downloads/extra-libs/lwjgl-3.4.1/%s.jar", Main.getMorpheusAPI(), split[1]));
                             }
                             isCustomLib = true;
                         }
@@ -528,18 +540,26 @@ public class Launcher {
                             if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
                                 downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-aarch64.zip", "lwjgl2-linux-arm");
                             }
-                            // LWJGL 3.3+
-                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules)) {
+                            // LWJGL 3.3.x
+                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules) && Pattern.compile(":3\\.3\\.\\d+(?:[^.]|$)").matcher(lib.name).find()) {
                                 downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.6-linux-aarch64.zip", "lwjgl3-linux-arm");
+                            }
+                            // LWJGL 3.4.x
+                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules) && Pattern.compile(":3\\.4\\.\\d+(?:[^.]|$)").matcher(lib.name).find()) {
+                                downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.4.1-linux-aarch64.zip", "lwjgl3-linux-arm");
                             }
                         } else if (isRiscVProcessor) {
                             // LWJGL 2.x
                             if (lib.downloads.classifiers != null && lib.downloads.classifiers.natives_linux != null && lib.downloads.classifiers.natives_linux.url.contains("lwjgl-platform-2")) {
                                 downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-2-linux-riscv64.zip", "lwjgl2-linux-riscv64");
                             }
-                            // LWJGL 3.3+
-                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules)) {
+                            // LWJGL 3.3.x
+                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules) && Pattern.compile(":3\\.3\\.\\d+(?:[^.]|$)").matcher(lib.name).find()) {
                                 downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.3.6-linux-riscv64.zip", "lwjgl3-linux-riscv64");
+                            }
+                            // LWJGL 3.4.x
+                            if (lib.name.contains("native") && lib.name.contains("lwjgl") && lib.rules != null && checkRule(lib.rules) && Pattern.compile(":3\\.4\\.\\d+(?:[^.]|$)").matcher(lib.name).find()) {
+                                downloadOnce.accept(Main.getMorpheusAPI() + "/downloads/extra-natives/lwjgl-3.4.1-linux-riscv64.zip", "lwjgl3-linux-riscv64");
                             }
                         }
                         break;
